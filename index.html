@@ -70,6 +70,7 @@
       font-size: 18px;
       font-weight: 700;
       cursor: pointer;
+      touch-action: manipulation;
     }
     .zoom-btn:hover { background: #243650; }
     .zoom-btn:focus-visible, input:focus-visible {
@@ -94,24 +95,22 @@
       background: #f3efe5;
       scrollbar-gutter: stable;
       position: relative;
+      -webkit-overflow-scrolling: touch;
     }
-    /*
-      Only the outer viewer is interactive for scrolling.
-      The iframe has pointer-events:none so participants/results cannot be clicked.
-      Zoom controls resize the rendered iframe and reserve the scaled scroll area.
-    */
+    /* Keep the canvas at 100%; the iframe extends proportionally to create a scrollable source viewport. */
     #canvas {
       position: relative;
       width: 100%;
       height: 3274px;
       min-width: 100%;
+      overflow: visible;
     }
     #bracketFrame {
       display: block;
       position: absolute;
       left: 0;
       top: 0;
-      width: 100%;
+      width: 400%;
       height: 3400px;
       border: 0;
       background: #f3efe5;
@@ -147,13 +146,15 @@
   <div class="toolbar" aria-label="Kontrol tampilan bracket">
     <span class="toolbar-label">Zoom:</span>
     <button class="zoom-btn" id="zoomOut" type="button" aria-label="Perkecil bracket">−</button>
-    <input id="zoomRange" type="range" min="50" max="150" step="5" value="100"
-           aria-label="Atur zoom bracket">
+    <input id="zoomRange" type="range" min="50" max="150" step="5" value="100" aria-label="Atur zoom bracket">
     <button class="zoom-btn" id="zoomIn" type="button" aria-label="Perbesar bracket">+</button>
     <span id="zoomValue" aria-live="polite">100%</span>
-    <button class="zoom-btn" id="zoomReset" type="button"
-            style="font-size:13px; min-width:auto" aria-label="Atur ulang zoom">Reset</button>
-    <span class="toolbar-label">Geser area bracket untuk melihat bagian lainnya.</span>
+    <button class="zoom-btn" id="zoomReset" type="button" style="font-size:13px; min-width:auto" aria-label="Atur ulang zoom">Reset</button>
+    <button class="zoom-btn" id="panLeft" type="button" aria-label="Geser kiri">←</button>
+    <button class="zoom-btn" id="panRight" type="button" aria-label="Geser kanan">→</button>
+    <button class="zoom-btn" id="panUp" type="button" aria-label="Geser atas">↑</button>
+    <button class="zoom-btn" id="panDown" type="button" aria-label="Geser bawah">↓</button>
+    <button class="zoom-btn" id="toChampion" type="button" style="font-size:12px; min-width:auto; background:#7c2d12; border-color:#fb923c">Ke Champion ⇥</button>
   </div>
 
   <main>
@@ -184,36 +185,35 @@
       const frame = document.getElementById("bracketFrame");
       const range = document.getElementById("zoomRange");
       const valueLabel = document.getElementById("zoomValue");
-      const zoomOut = document.getElementById("zoomOut");
-      const zoomIn = document.getElementById("zoomIn");
-      const zoomReset = document.getElementById("zoomReset");
 
       const MIN_ZOOM = 0;
       const MAX_ZOOM = 1.5;
       const STEP = 0.05;
+      const FRAME_WIDTH_PERCENT = 400;
       const SOURCE_FRAME_HEIGHT = 3400;
       const CROPPED_TOP = 126;
       const CONTENT_HEIGHT = SOURCE_FRAME_HEIGHT - CROPPED_TOP;
       let zoom = 1;
 
-      function setZoom(nextZoom) {
+      function setZoom(nextZoom, preservePosition = true) {
         const oldZoom = zoom;
         const oldScrollLeft = viewer.scrollLeft;
         const oldScrollTop = viewer.scrollTop;
-        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
-        zoom = Math.round(zoom * 100) / 100;
 
+        zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(nextZoom * 100) / 100));
         range.value = String(Math.round(zoom * 100));
         valueLabel.textContent = `${Math.round(zoom * 100)}%`;
 
-        // Keep the viewer scrollable in both directions when zoomed in.
+        // Canvas tetap 100% pada zoom <= 100%; diperluas secara relatif hanya saat zoom melebihi 100%.
         canvas.style.width = `${Math.max(100, zoom * 100)}%`;
         canvas.style.height = `${CONTENT_HEIGHT * zoom}px`;
-        frame.style.width = `${100 / zoom}%`;
+
+        // Lebar iframe memakai persentase, bukan lebar tetap 1800px, agar viewport sumber lebih lebar.
+        frame.style.width = `${FRAME_WIDTH_PERCENT}%`;
+        frame.style.height = `${SOURCE_FRAME_HEIGHT}px`;
         frame.style.transform = `scale(${zoom}) translateY(-${CROPPED_TOP}px)`;
 
-        // Preserve approximately the same point in the bracket after zooming.
-        if (oldZoom > 0) {
+        if (preservePosition && oldZoom > 0) {
           requestAnimationFrame(() => {
             viewer.scrollLeft = oldScrollLeft * (zoom / oldZoom);
             viewer.scrollTop = oldScrollTop * (zoom / oldZoom);
@@ -222,19 +222,58 @@
       }
 
       range.addEventListener("input", () => setZoom(Number(range.value) / 100));
-      zoomOut.addEventListener("click", () => setZoom(zoom - STEP));
-      zoomIn.addEventListener("click", () => setZoom(zoom + STEP));
-      zoomReset.addEventListener("click", () => {
-        setZoom(1);
-        viewer.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      document.getElementById("zoomOut").addEventListener("click", () => setZoom(zoom - STEP));
+      document.getElementById("zoomIn").addEventListener("click", () => setZoom(zoom + STEP));
+      document.getElementById("zoomReset").addEventListener("click", () => {
+        setZoom(1, false);
+        viewer.scrollTo({ left: 0, top: 0, behavior: "smooth" });
       });
 
-      // Prevent accidental keyboard focus on the source's interactive content.
-      frame.addEventListener("load", () => {
-        frame.style.pointerEvents = "none";
+      function pan(dx, dy) {
+        viewer.scrollBy({ left: dx, top: dy, behavior: "smooth" });
+      }
+      const horizontalStep = () => Math.max(260, viewer.clientWidth * 0.7);
+      const verticalStep = () => Math.max(260, viewer.clientHeight * 0.7);
+
+      document.getElementById("panLeft").addEventListener("click", () => pan(-horizontalStep(), 0));
+      document.getElementById("panRight").addEventListener("click", () => pan(horizontalStep(), 0));
+      document.getElementById("panUp").addEventListener("click", () => pan(0, -verticalStep()));
+      document.getElementById("panDown").addEventListener("click", () => pan(0, verticalStep()));
+      document.getElementById("toChampion").addEventListener("click", () => {
+        viewer.scrollTo({ left: viewer.scrollWidth, top: 0, behavior: "smooth" });
       });
 
-      setZoom(1);
+      // Panning sentuhan untuk HP ketika swipe bawaan tidak menggeser area viewer.
+      let touchStart = null;
+      viewer.addEventListener("touchstart", (event) => {
+        if (event.touches.length !== 1) {
+          touchStart = null;
+          return;
+        }
+        const touch = event.touches[0];
+        touchStart = {
+          x: touch.clientX,
+          y: touch.clientY,
+          left: viewer.scrollLeft,
+          top: viewer.scrollTop
+        };
+      }, { passive: true });
+
+      viewer.addEventListener("touchmove", (event) => {
+        if (!touchStart || event.touches.length !== 1) return;
+        const touch = event.touches[0];
+        const dx = touch.clientX - touchStart.x;
+        const dy = touch.clientY - touchStart.y;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) event.preventDefault();
+        viewer.scrollLeft = touchStart.left - dx;
+        viewer.scrollTop = touchStart.top - dy;
+      }, { passive: false });
+
+      viewer.addEventListener("touchend", () => { touchStart = null; }, { passive: true });
+      viewer.addEventListener("touchcancel", () => { touchStart = null; }, { passive: true });
+      frame.addEventListener("load", () => { frame.style.pointerEvents = "none"; });
+
+      setZoom(1, false);
     })();
   </script>
 </body>
