@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1120">
+  <title>SUMO 3 KG — Bracket Viewer</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1120;
+      --panel: #111d33;
+      --line: #263247;
+      --muted: #a8b4c7;
+      --text: #f8fafc;
+      --accent: #f97316;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 16px clamp(14px, 2.5vw, 28px);
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow {
+      color: #9fb0c9;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 5px 0 4px; font-size: clamp(23px, 3vw, 32px); }
+    .subtitle { margin: 0; color: var(--muted); font-size: 14px; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 9px;
+      color: #bbf7d0;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e; box-shadow: 0 0 0 4px #22c55120;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      padding: 12px clamp(10px, 2vw, 22px);
+      border-bottom: 1px solid var(--line);
+      background: #0e1728;
+    }
+    .toolbar-label { color: var(--muted); font-size: 13px; }
+    .zoom-btn {
+      min-width: 38px;
+      height: 36px;
+      padding: 0 12px;
+      border: 1px solid #43516a;
+      border-radius: 8px;
+      background: #17243a;
+      color: var(--text);
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .zoom-btn:hover { background: #243650; }
+    .zoom-btn:focus-visible, input:focus-visible {
+      outline: 2px solid #fb923c;
+      outline-offset: 2px;
+    }
+    #zoomRange { width: min(220px, 35vw); accent-color: var(--accent); }
+    #zoomValue {
+      min-width: 48px;
+      color: #fed7aa;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    main { padding: 12px; }
+    .viewer {
+      height: calc(100vh - 190px);
+      min-height: 420px;
+      overflow: auto;
+      overscroll-behavior: contain;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      background: #f3efe5;
+      scrollbar-gutter: stable;
+      position: relative;
+    }
+    /*
+      Only the outer viewer is interactive for scrolling.
+      The iframe has pointer-events:none so participants/results cannot be clicked.
+      Zoom controls resize the rendered iframe and reserve the scaled scroll area.
+    */
+    #canvas {
+      position: relative;
+      width: 100%;
+      height: 3274px;
+      min-width: 100%;
+    }
+    #bracketFrame {
+      display: block;
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 3400px;
+      border: 0;
+      background: #f3efe5;
+      pointer-events: none;
+      user-select: none;
+      -webkit-user-select: none;
+      transform-origin: top left;
+      transform: scale(1) translateY(-126px);
+    }
+    footer {
+      padding: 0 16px 14px;
+      color: #8796ad;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    @media (max-width: 640px) {
+      header { padding: 14px; }
+      main { padding: 8px; }
+      .toolbar { gap: 7px; padding: 10px; }
+      #zoomRange { width: min(140px, 30vw); }
+      .viewer { height: calc(100vh - 205px); min-height: 360px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">Tournament bracket · Viewer only</div>
+    <h1>SUMO 3 KG</h1>
+    <p class="subtitle">Double Elimination · 33 peserta</p>
+    <div class="status"><span class="dot"></span> Bracket dari sumber asli</div>
+  </header>
+
+  <div class="toolbar" aria-label="Kontrol tampilan bracket">
+    <span class="toolbar-label">Zoom:</span>
+    <button class="zoom-btn" id="zoomOut" type="button" aria-label="Perkecil bracket">−</button>
+    <input id="zoomRange" type="range" min="50" max="150" step="5" value="100"
+           aria-label="Atur zoom bracket">
+    <button class="zoom-btn" id="zoomIn" type="button" aria-label="Perbesar bracket">+</button>
+    <span id="zoomValue" aria-live="polite">100%</span>
+    <button class="zoom-btn" id="zoomReset" type="button"
+            style="font-size:13px; min-width:auto" aria-label="Atur ulang zoom">Reset</button>
+    <span class="toolbar-label">Geser area bracket untuk melihat bagian lainnya.</span>
+  </div>
+
+  <main>
+    <div class="viewer" id="viewer" aria-label="Area melihat bracket, read-only">
+      <div id="canvas">
+        <iframe
+          id="bracketFrame"
+          src="https://bracketmaker.org/ba058fa5"
+          title="SUMO 3 KG — bracket read-only"
+          tabindex="-1"
+          loading="eager"
+          referrerpolicy="strict-origin-when-cross-origin"
+          aria-readonly="true">
+        </iframe>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    Mode penampil: klik/edit pada bracket dinonaktifkan. Hasil pertandingan tetap dikelola di sumber asli.
+    Pembaruan tampak ketika halaman sumber menyajikan data terbaru.
+  </footer>
+
+  <script>
+    (() => {
+      const viewer = document.getElementById("viewer");
+      const canvas = document.getElementById("canvas");
+      const frame = document.getElementById("bracketFrame");
+      const range = document.getElementById("zoomRange");
+      const valueLabel = document.getElementById("zoomValue");
+      const zoomOut = document.getElementById("zoomOut");
+      const zoomIn = document.getElementById("zoomIn");
+      const zoomReset = document.getElementById("zoomReset");
+
+      const MIN_ZOOM = 0.5;
+      const MAX_ZOOM = 1.5;
+      const STEP = 0.05;
+      const SOURCE_FRAME_HEIGHT = 3400;
+      const CROPPED_TOP = 126;
+      const CONTENT_HEIGHT = SOURCE_FRAME_HEIGHT - CROPPED_TOP;
+      let zoom = 1;
+
+      function setZoom(nextZoom) {
+        const oldZoom = zoom;
+        const oldScrollLeft = viewer.scrollLeft;
+        const oldScrollTop = viewer.scrollTop;
+        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+        zoom = Math.round(zoom * 100) / 100;
+
+        range.value = String(Math.round(zoom * 100));
+        valueLabel.textContent = `${Math.round(zoom * 100)}%`;
+
+        // Keep the viewer scrollable in both directions when zoomed in.
+        canvas.style.width = `${Math.max(100, zoom * 100)}%`;
+        canvas.style.height = `${CONTENT_HEIGHT * zoom}px`;
+        frame.style.width = `${100 / zoom}%`;
+        frame.style.transform = `scale(${zoom}) translateY(-${CROPPED_TOP}px)`;
+
+        // Preserve approximately the same point in the bracket after zooming.
+        if (oldZoom > 0) {
+          requestAnimationFrame(() => {
+            viewer.scrollLeft = oldScrollLeft * (zoom / oldZoom);
+            viewer.scrollTop = oldScrollTop * (zoom / oldZoom);
+          });
+        }
+      }
+
+      range.addEventListener("input", () => setZoom(Number(range.value) / 100));
+      zoomOut.addEventListener("click", () => setZoom(zoom - STEP));
+      zoomIn.addEventListener("click", () => setZoom(zoom + STEP));
+      zoomReset.addEventListener("click", () => {
+        setZoom(1);
+        viewer.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      });
+
+      // Prevent accidental keyboard focus on the source's interactive content.
+      frame.addEventListener("load", () => {
+        frame.style.pointerEvents = "none";
+      });
+
+      setZoom(1);
+    })();
+  </script>
+</body>
+</html>
